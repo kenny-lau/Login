@@ -1,7 +1,6 @@
 const express = require('express')
 const User = require('../models/user')
-const auth = require('../middleware/authorize')
-const { update } = require('../models/user')
+const { auth, renewAuth } = require('../middleware/authorize')
 
 const router = new express.Router()
 
@@ -10,7 +9,7 @@ router.post('/users', async (req, res) => {
     const user = new User(req.body)
     try {
         await user.save()
-        const token = await user.getAuthorizationToken()
+        const token = await user.getAuthorizationTokens()
         res.status(201).send({ user, token })
     } catch (e) {
         res.status(400).send(e)
@@ -21,8 +20,25 @@ router.post('/users', async (req, res) => {
 router.post('/users/login', async (req, res) => {
     try {
         const user = await User.findByUserCredentials(req.body.email, req.body.password)
-        const token = await user.getAuthorizationToken()
+        const token = await user.getAuthorizationTokens()
         res.send({ user, token })
+    } catch (e) {
+        res.status(400).send({ error: 'Login failed' })
+    }
+})
+
+// refresh access token
+router.post('/users/token', renewAuth, async (req, res) => {
+    try {
+        const newToken = req.user.getAccessToken(req.user._id)
+        for (i = 0; i < req.user.tokens.length; i++) {
+            if (req.user.tokens[i].refreshToken === req.body.token) {
+                req.user.tokens[i].token = newToken
+                break
+            }
+        }
+        await req.user.save()
+        res.status(200).send({ user: req.user, newToken })
     } catch (e) {
         res.status(400).send(e)
     }
@@ -36,11 +52,9 @@ router.get('/users/profile', auth, async (req, res) => {
 // Logout
 router.post('/users/logout', auth, async (req, res) => {
     try {
-        console.log(req.user.tokens)
         req.user.tokens = req.user.tokens.filter((token) => {
             return token.token !== req.token   // remove current token and keep the rest
         })
-        console.log(req.user.tokens)
         await req.user.save()
 
         res.send()
@@ -63,7 +77,7 @@ router.post('/users/logoutall', auth, async (req, res) => {
 // update user profile
 router.patch('/users/profile', auth, async (req, res) => {
     const updates = Object.keys(req.body)
-    const allowUpdates = ['name', 'email', 'password', 'dateOfBirth', 'phone', 'gender', 'avatar']
+    const allowUpdates = ['name', 'email', 'password', 'dateOfBirth', 'phone', 'gender']
     const isValidUpdate = updates.every((update) => allowUpdates.includes(update))
 
     if (!isValidUpdate) {

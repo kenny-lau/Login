@@ -2,7 +2,6 @@ const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const validator = require('validator')
-const config = require('../../config/config')
 require('../db/mongoose')
 
 const userSchema = new mongoose.Schema({
@@ -51,6 +50,10 @@ const userSchema = new mongoose.Schema({
         }
     },
     tokens: [{
+        refreshToken: {
+            type: String,
+            required: true
+        },
         token: {
             type: String,
             required: true
@@ -60,12 +63,18 @@ const userSchema = new mongoose.Schema({
     timestamps: true
 })
 
-// generate bearer token
-userSchema.methods.getAuthorizationToken = async function () {
+// generate an access token
+userSchema.methods.getAccessToken = function (id) {
+    return jwt.sign({ _id: id }, process.env.TOKEN_SECRET, { expiresIn: Number(process.env.TOKEN_LIFE) })
+}
+
+// generate access token and refresh token
+userSchema.methods.getAuthorizationTokens = async function () {
     const user = this
-    const token = jwt.sign({ _id: user._id.toString() }, config.secret, { expiresIn: config.tokenLife })
+    const token = user.getAccessToken(user._id.toString())
+    const refreshToken = jwt.sign({ _id: user._id.toString() }, process.env.REFRESHTOKEN_SECRET, { expiresIn: Number(process.env.REFRESHTOKEN_LIFE) })
     // Add to token list for multiple devices login access
-    user.tokens = user.tokens.concat({ token })
+    user.tokens = user.tokens.concat({ refreshToken, token })
     await user.save()
 
     return token
